@@ -4,7 +4,6 @@ from IPython import display
 import glob
 import os
 from os.path import isdir, join
-from pathlib import Path
 
 # Math
 import numpy as np # linear algebra
@@ -14,13 +13,10 @@ from scipy.io import wavfile
 
 # Data Plotting and Visualizations
 from PIL import Image
-from matplotlib import cm
-from matplotlib import gridspec
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 
 # Sklearn Metrics
 from sklearn import metrics
-from sklearn.metrics import confusion_matrix
 
 # Tensorflow
 import tensorflow as tf
@@ -32,11 +28,11 @@ tf.logging.set_verbosity(tf.logging.ERROR)
 tf.logging.set_verbosity(tf.logging.INFO)
 
 # Cloud TPU Cluster Resolver flags
-tf.flags.DEFINE_string("tpu", default='NA',
+tf.flags.DEFINE_string("tpu", default=None,
                        help="The Cloud TPU to use for training.")
-tf.flags.DEFINE_string("tpu_zone", default='NA',
+tf.flags.DEFINE_string("tpu_zone", default=None,
     help="[Optional] GCE zone where the Cloud TPU is located in.")
-tf.flags.DEFINE_string("gcp_project", default='robolab',
+tf.flags.DEFINE_string("gcp_project", default=None,
     help="[Optional] Project name for the Cloud TPU-enabled project.")
 
 # Model specific parameters
@@ -46,7 +42,7 @@ tf.flags.DEFINE_string("model_dir", None, "Estimator model_dir")
 tf.flags.DEFINE_integer("batch_size", 1024,
                         "Mini-batch size for the training. Note that this "
                         "is the global batch size and not the per-shard batch.")
-tf.flags.DEFINE_integer("train_steps", 1000, "Total number of training steps.")
+tf.flags.DEFINE_integer("train_steps", 100000, "Total number of training steps.")
 tf.flags.DEFINE_integer("eval_steps", 0,
                         "Total number of evaluation steps. If `0`, evaluation "
                         "after training is skipped.")
@@ -151,6 +147,7 @@ def input_train_fn(params):
 def input_predict_fn(params):
     file = 'gs://anniebucket/tfrecords/train003.tfrecord'
     dataset = tf.data.TFRecordDataset(file)
+    dataset = dataset.shard(FLAGS.num_workers, FLAGS.worker_index)
     dataset = dataset.map(parser)
     iterator = dataset.make_one_shot_iterator()
     features, labels = iterator.get_next()
@@ -160,6 +157,7 @@ def input_predict_fn(params):
 def input_predict_fn_old(params):
     file = 'gs://anniebucket/tfrecords/train003.tfrecord'
     dataset = tf.data.TFRecordDataset(file)
+    dataset = dataset.shard(FLAGS.num_workers, FLAGS.worker_index)
     dataset = dataset.map(parser)
     iterator = dataset.make_one_shot_iterator()
     features, labels = iterator.get_next()
@@ -204,7 +202,8 @@ def train_mobilenet_model(learning_rate, steps, batch_size, training_targets, va
     train_input_fn = train_data_input_fn(TFRECORD_TRAIN, batch_size)
     train_predictions_fn = predict_data_input_fn(TFRECORD_TRAIN, batch_size)
     validation_predictions_fn = predict_data_input_fn(TFRECORD_VALIDATION, batch_size)
-    
+
+    print("Making call to estimator")
     classifier = tf.estimator.Estimator(
         model_fn=mobilenet_v2_35_model_fn,
         model_dir="/home/annie_l_ho/model/model_003",
@@ -310,7 +309,7 @@ def main(argv):
   )
 
   run_config = tf.contrib.tpu.RunConfig(
-      cluster=None,
+      cluster=tpu_cluster_resolver,
       model_dir=FLAGS.model_dir,
       session_config=tf.ConfigProto(
           allow_soft_placement=True, log_device_placement=True),
@@ -341,6 +340,7 @@ def main(argv):
   # TPUEstimator.train *requires* a max_steps argument.
   TFRECORD_TRAIN = 'gs://anniebucket/tfrecords/train003.tfrecord'
   TFRECORD_VALIDATION = 'gs://anniebucket/tfrecords/validation003.tfrecord'
+  print("call estimator function for training \n")
   estimator.train(input_fn=input_train_fn, max_steps=FLAGS.train_steps)
   # TPUEstimator.evaluate *requires* a steps argument.
   # Note that the number of examples used during evaluation is
